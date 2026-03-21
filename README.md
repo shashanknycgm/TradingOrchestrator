@@ -17,7 +17,7 @@ Orchestrator → Market Agent → Risk Agent → Signal Agent
 | Agent | Role |
 |---|---|
 | **Orchestrator** | Plans the analysis sequence — prioritizes tickers by risk/opportunity |
-| **Market Agent** | Fetches live price data (Yahoo Finance) + searches the web for breaking news and sentiment |
+| **Market Agent** | Uses Anthropic web search to fetch live price, volume, 52-week range, sentiment, and breaking news in a single call |
 | **Risk Agent** | Assesses position risk against your portfolio rules (max 7 positions, swing/day focus), evaluates news-driven risk |
 | **Signal Agent** | Produces a **BUY / HOLD / WAIT** recommendation with entry, stop-loss, target, and reasoning |
 
@@ -27,8 +27,7 @@ Orchestrator → Market Agent → Risk Agent → Signal Agent
 
 - **Frontend** — Next.js 14, Tailwind CSS, Space Mono font
 - **AI** — Anthropic Claude (`claude-sonnet-4-6`) via the Anthropic SDK, with streaming
-- **Market data** — [yahoo-finance2](https://github.com/gadicc/node-yahoo-finance2) (free, no API key)
-- **News** — Anthropic built-in `web_search` tool (server-side, no extra key needed)
+- **Market data + news** — Anthropic built-in `web_search` tool (server-side, no extra API key needed — price, volume, 52W range, sentiment, and news in one call)
 - **Observability** — OpenTelemetry stub following [Gen AI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/), ready to wire into Honeycomb
 
 ---
@@ -120,7 +119,7 @@ lib/
   agents/
     types.ts            # Shared types (MarketData, RiskAssessment, TradingSignal)
     orchestrator.ts     # Plans analysis sequence
-    market-agent.ts     # Price data + web search
+    market-agent.ts     # Live price + news via Anthropic web_search
     risk-agent.ts       # Risk evaluation
     signal-agent.ts     # Signal generation
 ```
