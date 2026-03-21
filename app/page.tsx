@@ -328,22 +328,6 @@ export default function Home() {
       <div className="flex flex-1 overflow-hidden">
         {/* ── Left sidebar ─────────────────────────────────────────────── */}
         <aside className="w-[360px] shrink-0 border-r border-border flex flex-col overflow-y-auto">
-          {/* Portfolio state */}
-          <section className="px-5 pt-5 pb-4 border-b border-border">
-            <p className="text-[10px] text-primary-muted tracking-widest mb-3">PORTFOLIO</p>
-            <div className="flex items-center gap-3">
-              <label className="text-xs text-gray-500 whitespace-nowrap">OPEN POSITIONS</label>
-              <input
-                type="number"
-                min={0}
-                max={7}
-                value={currentPositions}
-                onChange={(e) => setCurrentPositions(Math.min(7, Math.max(0, Number(e.target.value))))}
-                className="w-14 bg-surface-2 border border-border text-primary text-center text-sm px-2 py-1 outline-none focus:border-border-bright"
-              />
-              <span className="text-xs text-gray-600">/ 7 MAX</span>
-            </div>
-          </section>
 
           {/* Watchlist */}
           <section className="px-5 pt-4 pb-3 border-b border-border flex-1">
