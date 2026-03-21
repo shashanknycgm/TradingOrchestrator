@@ -9,11 +9,12 @@ export async function runMarketAgent(ticker: string, send: SendFn): Promise<Mark
   let priceData: Partial<MarketData> = { ticker, price: 0, change: 0, changePercent: 0, volume: 0 };
 
   try {
-    // yahoo-finance2 is ESM-only; dynamic import works correctly as an external package
+    // yahoo-finance2 default export is the class constructor; instantiate it
     const yf = await import('yahoo-finance2');
-    const yfi = yf.default;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const quote: any = await (yfi as any).quote(ticker);
+    const yfi = new (yf.default as any)();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const quote: any = await yfi.quote(ticker);
     priceData = {
       ticker,
       price: quote.regularMarketPrice ?? 0,
