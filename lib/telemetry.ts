@@ -1,10 +1,8 @@
 /**
- * Telemetry — Honeycomb via OpenTelemetry, Gen AI semantic conventions.
+ * Telemetry — sends events directly to Honeycomb Events API.
+ * No SDK init required. Dataset is auto-created on first event.
  *
- * Activated automatically when HONEYCOMB_API_KEY is set in .env.local.
- * The SDK is initialised in instrumentation.ts (Next.js instrumentationHook).
- *
- * Gen AI semantic conventions emitted per span:
+ * Gen AI semantic conventions per span:
  *   gen_ai.system            = "anthropic"
  *   gen_ai.operation.name    = "chat"
  *   gen_ai.request.model     = "claude-sonnet-4-6"
@@ -12,9 +10,10 @@
  *   gen_ai.usage.input_tokens
  *   gen_ai.usage.output_tokens
  *   gen_ai.agent.name        = "oracle" | "axiom" | "vega" | "edge"
+ *   duration_ms              = wall-clock time of the LLM call
  */
 
-import { trace, SpanStatusCode, type Span as OtelSpan } from '@opentelemetry/api';
+const HONEYCOMB_EVENTS_API = 'https://api.honeycomb.io/1/events';
 
 export interface GenAISpanAttributes {
   'gen_ai.system': string;
@@ -31,21 +30,32 @@ export interface Span {
   end: (attrs?: Partial<GenAISpanAttributes>) => void;
 }
 
-const TRACER_NAME = 'trading-orchestrator';
-
 export function startSpan(name: string, attrs: GenAISpanAttributes): Span {
-  const tracer = trace.getTracer(TRACER_NAME);
-  const span: OtelSpan = tracer.startSpan(name, {
-    attributes: attrs as Record<string, string | number | boolean>,
-  });
+  const startMs = Date.now();
 
   return {
     end: (endAttrs?: Partial<GenAISpanAttributes>) => {
-      if (endAttrs) {
-        span.setAttributes(endAttrs as Record<string, string | number | boolean>);
-      }
-      span.setStatus({ code: SpanStatusCode.OK });
-      span.end();
+      const apiKey = process.env.HONEYCOMB_API_KEY;
+      const dataset = process.env.HONEYCOMB_DATASET ?? 'trading-orchestrator';
+      if (!apiKey) return;
+
+      const event = {
+        name,
+        ...attrs,
+        ...endAttrs,
+        duration_ms: Date.now() - startMs,
+        timestamp: new Date(startMs).toISOString(),
+        'service.name': 'trading-orchestrator',
+      };
+
+      fetch(`${HONEYCOMB_EVENTS_API}/${encodeURIComponent(dataset)}`, {
+        method: 'POST',
+        headers: {
+          'X-Honeycomb-Team': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(event),
+      }).catch(() => {}); // fire-and-forget
     },
   };
 }
