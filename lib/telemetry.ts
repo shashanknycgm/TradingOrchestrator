@@ -29,6 +29,7 @@ export interface GenAISpanAttributes {
   'gen_ai.usage.input_tokens'?: number;
   'gen_ai.usage.output_tokens'?: number;
   'gen_ai.agent.name'?: string;
+  'gen_ai.agent.role'?: string;
   [key: string]: string | number | boolean | undefined;
 }
 

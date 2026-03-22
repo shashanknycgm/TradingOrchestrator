@@ -62,7 +62,8 @@ export async function runTickerConversation(
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'analysis',
     'gen_ai.request.model': MODEL,
-    'gen_ai.agent.name': 'conversation',
+    'gen_ai.agent.name': 'oracle',
+    'gen_ai.agent.role': 'orchestrator',
     ticker,
   } as Parameters<typeof startSpan>[1], { traceId });
 

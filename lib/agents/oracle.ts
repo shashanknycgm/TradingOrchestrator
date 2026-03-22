@@ -22,6 +22,7 @@ async function streamOracle(
     'gen_ai.request.model': MODEL,
     'gen_ai.request.max_tokens': 150,
     'gen_ai.agent.name': 'oracle',
+    'gen_ai.agent.role': 'orchestrator',
   }, trace);
 
   const anthropic = getAnthropicClient();

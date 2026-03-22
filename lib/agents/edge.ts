@@ -40,6 +40,7 @@ async function streamEdge(
     'gen_ai.request.model': MODEL,
     'gen_ai.request.max_tokens': 350,
     'gen_ai.agent.name': 'edge',
+    'gen_ai.agent.role': 'signal_generator',
   }, trace);
 
   const anthropic = getAnthropicClient();

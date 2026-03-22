@@ -1,4 +1,6 @@
-import { getAnthropicClient, MODEL } from '../anthropic';
+import { getAnthropicClient } from '../anthropic';
+
+const HAIKU = 'claude-haiku-4-5-20251001';
 import { startSpan } from '../telemetry';
 import type { TraceContext } from '../telemetry';
 import { formatHistory } from './utils';
@@ -32,9 +34,10 @@ export async function axiomReport(
   const span = startSpan('axiom.report', {
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'chat',
-    'gen_ai.request.model': MODEL,
+    'gen_ai.request.model': HAIKU,
     'gen_ai.request.max_tokens': 1500,
     'gen_ai.agent.name': 'axiom',
+    'gen_ai.agent.role': 'market_intel',
   }, trace);
 
   const anthropic = getAnthropicClient();
@@ -47,7 +50,7 @@ export async function axiomReport(
   try {
     const response = await anthropic.messages.create(
       {
-        model: MODEL,
+        model: HAIKU,
         max_tokens: 1500,
         system: SYSTEM,
         messages: [

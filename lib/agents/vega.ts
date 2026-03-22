@@ -33,6 +33,7 @@ async function streamVega(
     'gen_ai.request.model': MODEL,
     'gen_ai.request.max_tokens': 300,
     'gen_ai.agent.name': 'vega',
+    'gen_ai.agent.role': 'risk_assessor',
   }, trace);
 
   const anthropic = getAnthropicClient();
