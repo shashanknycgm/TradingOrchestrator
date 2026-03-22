@@ -1,12 +1,20 @@
 /**
- * Telemetry stub — wired for Honeycomb via OpenTelemetry.
- * Add HONEYCOMB_API_KEY + HONEYCOMB_DATASET to .env.local to activate.
+ * Telemetry — Honeycomb via OpenTelemetry, Gen AI semantic conventions.
  *
- * Gen AI semantic conventions used:
- *   gen_ai.system, gen_ai.request.model, gen_ai.operation.name,
- *   gen_ai.usage.input_tokens, gen_ai.usage.output_tokens,
- *   gen_ai.request.max_tokens, gen_ai.agent.name
+ * Activated automatically when HONEYCOMB_API_KEY is set in .env.local.
+ * The SDK is initialised in instrumentation.ts (Next.js instrumentationHook).
+ *
+ * Gen AI semantic conventions emitted per span:
+ *   gen_ai.system            = "anthropic"
+ *   gen_ai.operation.name    = "chat"
+ *   gen_ai.request.model     = "claude-sonnet-4-6"
+ *   gen_ai.request.max_tokens
+ *   gen_ai.usage.input_tokens
+ *   gen_ai.usage.output_tokens
+ *   gen_ai.agent.name        = "oracle" | "axiom" | "vega" | "edge"
  */
+
+import { trace, SpanStatusCode, type Span as OtelSpan } from '@opentelemetry/api';
 
 export interface GenAISpanAttributes {
   'gen_ai.system': string;
@@ -23,34 +31,21 @@ export interface Span {
   end: (attrs?: Partial<GenAISpanAttributes>) => void;
 }
 
-/**
- * Start a telemetry span for a Gen AI operation.
- * Currently logs to console; swap body for @honeycombio/opentelemetry-node
- * once HONEYCOMB_API_KEY is provided.
- */
+const TRACER_NAME = 'trading-orchestrator';
+
 export function startSpan(name: string, attrs: GenAISpanAttributes): Span {
-  const honeycombKey = process.env.HONEYCOMB_API_KEY;
-  const start = Date.now();
-
-  if (honeycombKey) {
-    // TODO: replace with real Honeycomb OTel span when key is provided
-    // const { trace } = require('@opentelemetry/api');
-    // const tracer = trace.getTracer('trading-orchestrator');
-    // const span = tracer.startSpan(name, { attributes: attrs });
-    // return { end: (endAttrs) => { span.setAttributes(endAttrs ?? {}); span.end(); } };
-  }
-
-  // Console fallback (dev / no Honeycomb key)
-  if (process.env.NODE_ENV !== 'production') {
-    console.log(`[SPAN:START] ${name}`, attrs);
-  }
+  const tracer = trace.getTracer(TRACER_NAME);
+  const span: OtelSpan = tracer.startSpan(name, {
+    attributes: attrs as Record<string, string | number | boolean>,
+  });
 
   return {
     end: (endAttrs?: Partial<GenAISpanAttributes>) => {
-      const duration = Date.now() - start;
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`[SPAN:END] ${name} +${duration}ms`, endAttrs ?? {});
+      if (endAttrs) {
+        span.setAttributes(endAttrs as Record<string, string | number | boolean>);
       }
+      span.setStatus({ code: SpanStatusCode.OK });
+      span.end();
     },
   };
 }
