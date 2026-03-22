@@ -1,24 +1,19 @@
-export interface MarketData {
+export type AgentName = 'ORACLE' | 'AXIOM' | 'VEGA' | 'EDGE';
+
+export interface ConversationMessage {
+  from: AgentName;
+  to: string; // 'all' | agent name
+  content: string;
+}
+
+export interface MarketPrice {
   ticker: string;
   price: number;
   change: number;
   changePercent: number;
   volume: number;
-  marketCap?: number;
-  fiftyTwoWeekHigh?: number;
-  fiftyTwoWeekLow?: number;
-  avgVolume?: number;
-  peRatio?: number;
-  analysis: string; // Claude's news + sentiment synthesis
-}
-
-export interface RiskAssessment {
-  ticker: string;
-  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME';
-  canAddPosition: boolean;
-  positionsUsed: number;
-  maxPositions: number;
-  reasoning: string;
+  week52High?: number;
+  week52Low?: number;
 }
 
 export interface TradingSignal {
@@ -32,14 +27,12 @@ export interface TradingSignal {
   reasoning: string;
 }
 
-// SSE event shapes sent from API → client
 export type TraceEvent =
-  | { type: 'orchestrator_start' }
-  | { type: 'agent_log'; agent: string; ticker?: string; text: string }
-  | { type: 'phase_start'; agent: string; ticker?: string }
-  | { type: 'price_data'; ticker: string; price: number; change: number; changePercent: number; volume: number }
-  | { type: 'risk_result'; data: RiskAssessment }
-  | { type: 'signal_result'; data: TradingSignal }
+  | { type: 'ticker_start'; ticker: string }
+  | { type: 'agent_chunk'; ticker: string; from: AgentName; to: string; text: string }
+  | { type: 'agent_message_done'; ticker: string; from: AgentName; to: string; content: string }
+  | { type: 'price_update'; ticker: string; price: MarketPrice }
+  | { type: 'ticker_complete'; ticker: string; signal: TradingSignal }
   | { type: 'complete' }
   | { type: 'error'; message: string };
 
