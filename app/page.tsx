@@ -433,7 +433,7 @@ export default function Home() {
         <main className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-6 py-3 border-b border-[#2a2a1a] shrink-0">
             <div className="flex items-center gap-3">
-              <span className="text-sm font-bold tracking-wider">AGENT TRACE</span>
+              <span className="text-sm font-bold tracking-wider">AGENTIC ECOSYSTEM</span>
               <span className={`text-[10px] tracking-widest px-2 py-0.5 border ${
                 status === 'RUNNING'  ? 'border-[#aaff00] text-[#aaff00]'
                 : status === 'COMPLETE' ? 'border-[#445500] text-[#445500]'

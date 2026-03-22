@@ -1,33 +1,50 @@
 # Trading//Orchestrator
 
-**Multi-agent trading monitor · Orchestrated by Claude**
+**Agentic ecosystem for real-time trading analysis · Powered by Claude**
 
-A real-time, AI-powered trading analysis tool that runs a 4-agent pipeline against your watchlist — delivering market intelligence, risk assessment, and actionable signals for swing and day traders.
+Four AI agents with distinct identities and personalities run in parallel, talk to each other, debate their findings, and converge on a trading signal — all streamed live to your screen.
 
 ---
 
-## What it does
+## The Agentic Ecosystem
 
-You add up to 3 tickers, set your current open position count, and hit **Run Agents**. Four Claude-powered agents then work in sequence, streaming their reasoning to the screen in real time:
+Add up to 3 tickers and hit **Run Agents**. All ticker conversations start simultaneously. Each runs its own multi-agent dialogue:
 
 ```
-Orchestrator → Market Agent → Risk Agent → Signal Agent
+ORACLE → AXIOM → VEGA → EDGE  (→ debate round if needed) → ORACLE
 ```
 
-| Agent | Role |
-|---|---|
-| **Orchestrator** | Plans the analysis sequence — prioritizes tickers by risk/opportunity |
-| **Market Agent** | Uses Anthropic web search to fetch live price, volume, 52-week range, sentiment, and breaking news in a single call |
-| **Risk Agent** | Assesses position risk against your portfolio rules (max 7 positions, swing/day focus), evaluates news-driven risk |
-| **Signal Agent** | Produces a **BUY / HOLD / WAIT** recommendation with entry, stop-loss, target, and reasoning |
+All ticker pipelines execute **in parallel** via `Promise.all` — NVDA, AAPL, and TSLA are analyzed at the same time, not one after another.
+
+### The agents
+
+| Agent | Personality | Role |
+|---|---|---|
+| **ORACLE** | Calm, authoritative, strategic | Opens and closes each ticker session. Directs the team. Delivers the final verdict. |
+| **AXIOM** | Data-obsessed, precise, factual | Runs a live web search for price, volume, 52W range, sentiment, and breaking news. Reports in facts only. |
+| **VEGA** | Skeptical, contrarian, protective | Challenges overconfidence. Evaluates news risk, sentiment overextension, and price risk. Gives a risk rating. |
+| **EDGE** | Decisive, confident, committed | Synthesizes the conversation and makes the call: **BUY / HOLD / WAIT** with entry, stop, and target. |
+
+### The debate
+
+If VEGA rates risk **HIGH** or **EXTREME** and EDGE calls **BUY**, a debate round is triggered automatically:
+
+```
+VEGA →EDGE  "That volume spike could be distribution, not accumulation..."
+EDGE →VEGA  "Institutional block trades confirmed — reaffirming BUY..."
+ORACLE      "Signal confirmed. EDGE holds. Moving on."
+```
+
+ORACLE closes with the final word.
 
 ---
 
 ## Stack
 
 - **Frontend** — Next.js 14, Tailwind CSS, Space Mono font
-- **AI** — Anthropic Claude (`claude-sonnet-4-6`) via the Anthropic SDK, with streaming
-- **Market data + news** — Anthropic built-in `web_search` tool (server-side, no extra API key needed — price, volume, 52W range, sentiment, and news in one call)
+- **AI** — Anthropic Claude (`claude-sonnet-4-6`) via the Anthropic SDK, with real-time streaming
+- **Market data + news** — Anthropic built-in `web_search` tool (no extra API key needed)
+- **Parallelism** — `Promise.all` across tickers; SSE stream routes events by ticker to the UI
 - **Observability** — OpenTelemetry stub following [Gen AI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/), ready to wire into Honeycomb
 
 ---
@@ -54,7 +71,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 # HONEYCOMB_DATASET=trading-orchestrator
 ```
 
-> Your key is only used server-side and is never exposed in the UI or committed to git.
+> Your key is only used server-side. It is never exposed in the UI or committed to git.
 
 ### 3. Run
 
@@ -68,14 +85,13 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Usage
 
-1. Set **Open Positions** to your current number of active trades (used by the Risk Agent)
-2. Add up to **3 tickers** (e.g. `NVDA`, `AAPL`, `MSFT`)
-3. Click **▶ Run Agents**
-4. Watch the agent trace stream in real time — price cards, risk ratings, and final signals appear as each agent completes
+1. Add up to **3 tickers** (e.g. `NVDA`, `AAPL`, `TSLA`)
+2. Click **▶ Run Agents**
+3. Watch the **Agentic Ecosystem** panel — each ticker gets its own conversation section, all streaming simultaneously. Agents appear as colored chat bubbles as they speak.
 
 ### Signal output
 
-Each ticker gets a structured result:
+Each ticker closes with a structured signal card:
 
 ```
 ▶ BUY · HIGH CONFIDENCE · SWING
@@ -83,13 +99,13 @@ ENTRY  $122–125  STOP  $118  TARGET  $140
 Strong earnings beat with analyst upgrades...
 ```
 
-Signals are color-coded: **BUY** (green) · **HOLD** (yellow) · **WAIT** (gray)
+Color-coded: **BUY** (green) · **HOLD** (yellow) · **WAIT** (gray)
 
 ---
 
 ## Observability (Honeycomb)
 
-The telemetry layer in `lib/telemetry.ts` is pre-wired for [Gen AI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/). Each Claude call emits spans with:
+`lib/telemetry.ts` is pre-wired for [Gen AI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/). Each Claude call emits spans with:
 
 ```
 gen_ai.system           = "anthropic"
@@ -98,7 +114,7 @@ gen_ai.request.model    = "claude-sonnet-4-6"
 gen_ai.request.max_tokens
 gen_ai.usage.input_tokens
 gen_ai.usage.output_tokens
-gen_ai.agent.name       = "orchestrator" | "market_agent" | "risk_agent" | "signal_agent"
+gen_ai.agent.name       = "oracle" | "axiom" | "vega" | "edge"
 ```
 
 To activate Honeycomb, add your key to `.env.local` and uncomment the OTel exporter in `lib/telemetry.ts`.
@@ -109,19 +125,21 @@ To activate Honeycomb, add your key to `.env.local` and uncomment the OTel expor
 
 ```
 app/
-  page.tsx              # Main UI (client component — streaming trace display)
-  api/run/route.ts      # Streaming SSE endpoint — wires the 4-agent pipeline
+  page.tsx              # Chat-style UI — parallel ticker sections, agent bubbles, signal cards
+  api/run/route.ts      # SSE endpoint — runs all ticker conversations in parallel
   layout.tsx / globals.css
 
 lib/
   anthropic.ts          # Anthropic client singleton
   telemetry.ts          # OTel span helper (Honeycomb-ready)
   agents/
-    types.ts            # Shared types (MarketData, RiskAssessment, TradingSignal)
-    orchestrator.ts     # Plans analysis sequence
-    market-agent.ts     # Live price + news via Anthropic web_search
-    risk-agent.ts       # Risk evaluation
-    signal-agent.ts     # Signal generation
+    types.ts            # AgentName, ConversationMessage, TradingSignal, TraceEvent
+    utils.ts            # formatHistory helper
+    conversation.ts     # Per-ticker conversation runner (ORACLE→AXIOM→VEGA→EDGE→debate→ORACLE)
+    oracle.ts           # ORACLE — calm orchestrator, opens/closes sessions
+    axiom.ts            # AXIOM — market intel via web_search
+    vega.ts             # VEGA — skeptical risk assessor, triggers debate
+    edge.ts             # EDGE — decisive signal generator, defends or adjusts
 ```
 
 ---
