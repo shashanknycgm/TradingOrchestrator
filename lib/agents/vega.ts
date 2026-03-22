@@ -1,5 +1,6 @@
 import { getAnthropicClient, MODEL } from '../anthropic';
 import { startSpan } from '../telemetry';
+import type { TraceContext } from '../telemetry';
 import { formatHistory } from './utils';
 import type { ConversationMessage, AgentName, SendFn } from './types';
 
@@ -22,7 +23,8 @@ async function streamVega(
   phase: 'assess' | 'challenge',
   ticker: string,
   history: ConversationMessage[],
-  send: SendFn
+  send: SendFn,
+  trace?: TraceContext
 ): Promise<string> {
   const to = phase === 'challenge' ? 'EDGE' : 'all';
   const span = startSpan(`vega.${phase}`, {
@@ -31,7 +33,7 @@ async function streamVega(
     'gen_ai.request.model': MODEL,
     'gen_ai.request.max_tokens': 300,
     'gen_ai.agent.name': 'vega',
-  });
+  }, trace);
 
   const anthropic = getAnthropicClient();
   let fullText = '';
@@ -66,8 +68,8 @@ async function streamVega(
   return fullText;
 }
 
-export const vegaAssess = (ticker: string, history: ConversationMessage[], send: SendFn) =>
-  streamVega('assess', ticker, history, send);
+export const vegaAssess = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
+  streamVega('assess', ticker, history, send, trace);
 
-export const vegaChallenge = (ticker: string, history: ConversationMessage[], send: SendFn) =>
-  streamVega('challenge', ticker, history, send);
+export const vegaChallenge = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
+  streamVega('challenge', ticker, history, send, trace);

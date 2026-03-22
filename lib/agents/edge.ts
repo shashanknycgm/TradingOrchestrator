@@ -1,5 +1,6 @@
 import { getAnthropicClient, MODEL } from '../anthropic';
 import { startSpan } from '../telemetry';
+import type { TraceContext } from '../telemetry';
 import { formatHistory } from './utils';
 import type { ConversationMessage, AgentName, SendFn } from './types';
 
@@ -29,7 +30,8 @@ async function streamEdge(
   phase: 'decide' | 'respond',
   ticker: string,
   history: ConversationMessage[],
-  send: SendFn
+  send: SendFn,
+  trace?: TraceContext
 ): Promise<string> {
   const to = phase === 'respond' ? 'VEGA' : 'all';
   const span = startSpan(`edge.${phase}`, {
@@ -38,7 +40,7 @@ async function streamEdge(
     'gen_ai.request.model': MODEL,
     'gen_ai.request.max_tokens': 350,
     'gen_ai.agent.name': 'edge',
-  });
+  }, trace);
 
   const anthropic = getAnthropicClient();
   let fullText = '';
@@ -73,8 +75,8 @@ async function streamEdge(
   return fullText;
 }
 
-export const edgeDecide = (ticker: string, history: ConversationMessage[], send: SendFn) =>
-  streamEdge('decide', ticker, history, send);
+export const edgeDecide = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
+  streamEdge('decide', ticker, history, send, trace);
 
-export const edgeRespond = (ticker: string, history: ConversationMessage[], send: SendFn) =>
-  streamEdge('respond', ticker, history, send);
+export const edgeRespond = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
+  streamEdge('respond', ticker, history, send, trace);

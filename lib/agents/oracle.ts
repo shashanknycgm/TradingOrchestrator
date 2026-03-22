@@ -1,5 +1,6 @@
 import { getAnthropicClient, MODEL } from '../anthropic';
 import { startSpan } from '../telemetry';
+import type { TraceContext } from '../telemetry';
 import { formatHistory } from './utils';
 import type { ConversationMessage, AgentName, TradingSignal, SendFn } from './types';
 
@@ -12,7 +13,8 @@ async function streamOracle(
   ticker: string,
   to: string,
   userContent: string,
-  send: SendFn
+  send: SendFn,
+  trace?: TraceContext
 ): Promise<string> {
   const span = startSpan('oracle.message', {
     'gen_ai.system': 'anthropic',
@@ -20,7 +22,7 @@ async function streamOracle(
     'gen_ai.request.model': MODEL,
     'gen_ai.request.max_tokens': 150,
     'gen_ai.agent.name': 'oracle',
-  });
+  }, trace);
 
   const anthropic = getAnthropicClient();
   let fullText = '';
@@ -50,12 +52,11 @@ async function streamOracle(
   return fullText;
 }
 
-export async function oracleOpen(ticker: string, send: SendFn): Promise<string> {
+export async function oracleOpen(ticker: string, send: SendFn, trace?: TraceContext): Promise<string> {
   return streamOracle(
-    ticker,
-    'all',
+    ticker, 'all',
     `Open the analysis session for ${ticker}. Direct AXIOM to search for current price, volume, sentiment, and breaking news. Be brief and commanding.`,
-    send
+    send, trace
   );
 }
 
@@ -63,12 +64,12 @@ export async function oracleClose(
   ticker: string,
   history: ConversationMessage[],
   signal: TradingSignal,
-  send: SendFn
+  send: SendFn,
+  trace?: TraceContext
 ): Promise<string> {
   return streamOracle(
-    ticker,
-    'all',
+    ticker, 'all',
     `Close the analysis session for ${ticker}. Full conversation:\n\n${formatHistory(history)}\n\nEDGE's final call is ${signal.signal} (${signal.confidence} confidence, ${signal.timeframe}). Confirm and wrap up in 1-2 sentences.`,
-    send
+    send, trace
   );
 }

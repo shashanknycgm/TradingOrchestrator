@@ -1,19 +1,25 @@
 /**
- * Telemetry — sends events directly to Honeycomb Events API.
- * No SDK init required. Dataset is auto-created on first event.
+ * Telemetry — sends trace spans directly to Honeycomb Events API.
  *
- * Gen AI semantic conventions per span:
- *   gen_ai.system            = "anthropic"
- *   gen_ai.operation.name    = "chat"
- *   gen_ai.request.model     = "claude-sonnet-4-6"
- *   gen_ai.request.max_tokens
- *   gen_ai.usage.input_tokens
- *   gen_ai.usage.output_tokens
- *   gen_ai.agent.name        = "oracle" | "axiom" | "vega" | "edge"
- *   duration_ms              = wall-clock time of the LLM call
+ * Each agent call becomes a child span within a per-ticker trace:
+ *   trace.trace_id   — one per ticker analysis run
+ *   trace.span_id    — one per agent call
+ *   trace.parent_id  — links child spans to the root ticker.analysis span
+ *
+ * Gen AI semantic conventions also emitted:
+ *   gen_ai.system, gen_ai.operation.name, gen_ai.request.model,
+ *   gen_ai.request.max_tokens, gen_ai.usage.input_tokens,
+ *   gen_ai.usage.output_tokens, gen_ai.agent.name, duration_ms
  */
 
 const HONEYCOMB_EVENTS_API = 'https://api.honeycomb.io/1/events';
+
+const newId = () => crypto.randomUUID().replace(/-/g, '');
+
+export interface TraceContext {
+  traceId: string;
+  parentSpanId?: string;
+}
 
 export interface GenAISpanAttributes {
   'gen_ai.system': string;
@@ -27,19 +33,26 @@ export interface GenAISpanAttributes {
 }
 
 export interface Span {
+  spanId: string;
   end: (attrs?: Partial<GenAISpanAttributes>) => void;
 }
 
-export function startSpan(name: string, attrs: GenAISpanAttributes): Span {
+export function startSpan(
+  name: string,
+  attrs: GenAISpanAttributes,
+  trace?: TraceContext
+): Span {
   const startMs = Date.now();
+  const spanId = newId();
 
   return {
+    spanId,
     end: (endAttrs?: Partial<GenAISpanAttributes>) => {
       const apiKey = process.env.HONEYCOMB_API_KEY;
       const dataset = process.env.HONEYCOMB_DATASET ?? 'trading-orchestrator';
       if (!apiKey) return;
 
-      const event = {
+      const event: Record<string, unknown> = {
         name,
         ...attrs,
         ...endAttrs,
@@ -48,6 +61,12 @@ export function startSpan(name: string, attrs: GenAISpanAttributes): Span {
         'service.name': 'trading-orchestrator',
       };
 
+      if (trace) {
+        event['trace.trace_id'] = trace.traceId;
+        event['trace.span_id'] = spanId;
+        if (trace.parentSpanId) event['trace.parent_id'] = trace.parentSpanId;
+      }
+
       fetch(`${HONEYCOMB_EVENTS_API}/${encodeURIComponent(dataset)}`, {
         method: 'POST',
         headers: {
@@ -55,7 +74,9 @@ export function startSpan(name: string, attrs: GenAISpanAttributes): Span {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(event),
-      }).catch(() => {}); // fire-and-forget
+      }).then((res) => {
+        if (!res.ok) res.text().then((b) => console.error(`[Honeycomb] ${res.status}:`, b));
+      }).catch((err) => console.error('[Honeycomb] fetch failed:', err));
     },
   };
 }

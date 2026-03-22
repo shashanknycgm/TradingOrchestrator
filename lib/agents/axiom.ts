@@ -1,5 +1,6 @@
 import { getAnthropicClient, MODEL } from '../anthropic';
 import { startSpan } from '../telemetry';
+import type { TraceContext } from '../telemetry';
 import { formatHistory } from './utils';
 import type { ConversationMessage, AgentName, MarketPrice, SendFn } from './types';
 
@@ -25,7 +26,8 @@ End with one direct sentence passing findings to VEGA and EDGE.`;
 export async function axiomReport(
   ticker: string,
   history: ConversationMessage[],
-  send: SendFn
+  send: SendFn,
+  trace?: TraceContext
 ): Promise<{ message: string; price?: MarketPrice }> {
   const span = startSpan('axiom.report', {
     'gen_ai.system': 'anthropic',
@@ -33,7 +35,7 @@ export async function axiomReport(
     'gen_ai.request.model': MODEL,
     'gen_ai.request.max_tokens': 1500,
     'gen_ai.agent.name': 'axiom',
-  });
+  }, trace);
 
   const anthropic = getAnthropicClient();
   let rawText = '';

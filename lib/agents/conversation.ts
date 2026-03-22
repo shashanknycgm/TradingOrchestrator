@@ -2,6 +2,9 @@ import { oracleOpen, oracleClose } from './oracle';
 import { axiomReport } from './axiom';
 import { vegaAssess, vegaChallenge } from './vega';
 import { edgeDecide, edgeRespond } from './edge';
+import { startSpan } from '../telemetry';
+import type { TraceContext } from '../telemetry';
+import { MODEL } from '../anthropic';
 import type { ConversationMessage, AgentName, TradingSignal, MarketPrice, SendFn } from './types';
 
 function parseField(text: string, key: string): string | undefined {
@@ -53,12 +56,25 @@ export async function runTickerConversation(
 
   send({ type: 'ticker_start', ticker });
 
+  // Root span — one trace per ticker analysis
+  const traceId = crypto.randomUUID().replace(/-/g, '');
+  const rootSpan = startSpan('ticker.analysis', {
+    'gen_ai.system': 'anthropic',
+    'gen_ai.operation.name': 'analysis',
+    'gen_ai.request.model': MODEL,
+    'gen_ai.agent.name': 'conversation',
+    ticker,
+  } as Parameters<typeof startSpan>[1], { traceId });
+
+  // All agent spans are children of the root span
+  const childTrace: TraceContext = { traceId, parentSpanId: rootSpan.spanId };
+
   // 1. ORACLE opens
-  const oracleOpenMsg = await oracleOpen(ticker, send);
+  const oracleOpenMsg = await oracleOpen(ticker, send, childTrace);
   add('ORACLE', 'all', oracleOpenMsg);
 
   // 2. AXIOM reports (web search — non-streaming)
-  const { message: axiomMsg, price } = await axiomReport(ticker, history, send);
+  const { message: axiomMsg, price } = await axiomReport(ticker, history, send, childTrace);
   add('AXIOM', 'all', axiomMsg);
   if (price) {
     lastMarketPrice = price;
@@ -66,11 +82,11 @@ export async function runTickerConversation(
   }
 
   // 3. VEGA assesses
-  const vegaMsg = await vegaAssess(ticker, history, send);
+  const vegaMsg = await vegaAssess(ticker, history, send, childTrace);
   add('VEGA', 'all', vegaMsg);
 
   // 4. EDGE decides
-  const edgeMsg = await edgeDecide(ticker, history, send);
+  const edgeMsg = await edgeDecide(ticker, history, send, childTrace);
   add('EDGE', 'all', edgeMsg);
 
   // 5. Debate round — triggered if VEGA says HIGH/EXTREME and EDGE says BUY
@@ -78,10 +94,10 @@ export async function runTickerConversation(
   const edgeSignalType = parseField(edgeMsg, 'SIGNAL')?.toUpperCase();
 
   if ((vegaRisk === 'HIGH' || vegaRisk === 'EXTREME') && edgeSignalType === 'BUY') {
-    const vegaChallengeMsg = await vegaChallenge(ticker, history, send);
+    const vegaChallengeMsg = await vegaChallenge(ticker, history, send, childTrace);
     add('VEGA', 'EDGE', vegaChallengeMsg);
 
-    const edgeResponseMsg = await edgeRespond(ticker, history, send);
+    const edgeResponseMsg = await edgeRespond(ticker, history, send, childTrace);
     add('EDGE', 'VEGA', edgeResponseMsg);
   }
 
@@ -90,10 +106,13 @@ export async function runTickerConversation(
   const signal = parseSignal(ticker, lastEdge?.content ?? edgeMsg);
 
   // 7. ORACLE closes
-  const oracleCloseMsg = await oracleClose(ticker, history, signal, send);
+  const oracleCloseMsg = await oracleClose(ticker, history, signal, send, childTrace);
   add('ORACLE', 'all', oracleCloseMsg);
 
+  // Close root span
+  rootSpan.end({ ticker } as Parameters<typeof rootSpan.end>[0]);
+
   send({ type: 'ticker_complete', ticker, signal });
-  void lastMarketPrice; // used via price_update event
+  void lastMarketPrice;
   return signal;
 }
