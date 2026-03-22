@@ -66,7 +66,26 @@ export async function axiomReport(
     );
 
     for (const block of response.content) {
-      if (block.type === 'text') rawText += block.text;
+      if (block.type === 'text') {
+        rawText += block.text;
+      } else {
+        // Handle server_tool_use (beta) blocks — SDK types don't include this variant yet
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const b = block as any;
+        if (b.type === 'server_tool_use' && b.name === 'web_search' && trace) {
+          const toolSpan = startSpan('tool.web_search', {
+            'gen_ai.system': 'anthropic',
+            'gen_ai.operation.name': 'tool_call',
+            'gen_ai.request.model': HAIKU,
+            'gen_ai.agent.name': 'axiom',
+            'gen_ai.agent.role': 'market_intel',
+            'gen_ai.tool.name': 'web_search',
+            'tool.call.id': String(b.id ?? ''),
+            'tool.input.query': String(b.input?.query ?? ''),
+          }, { traceId: trace.traceId, parentSpanId: span.spanId });
+          toolSpan.end();
+        }
+      }
     }
     inputTokens = response.usage.input_tokens;
     outputTokens = response.usage.output_tokens;
