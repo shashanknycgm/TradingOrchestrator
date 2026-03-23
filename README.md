@@ -143,6 +143,22 @@ gen_ai.agent.role          = "orchestrator" | "market_intel" | "risk_assessor" |
 
 **Tool call spans** — AXIOM's `web_search` calls are emitted as child spans under `tool.web_search` with the query recorded.
 
+**Human input events** — every "Run Agents" click fires a `human.input` event capturing the tickers and session ID, so you can see exactly what the user asked for alongside the agent activity.
+
+**Agent message content** — every message an agent sends is emitted as an `agent.message` event with the full message text, `message.from`, `message.to`, and the ticker — so you can read the entire conversation as it happened directly in Honeycomb.
+
+```
+Event types in Honeycomb:
+  human.input        — tickers the user submitted + session.id
+  agent.message      — full content of each agent message (from/to/content/ticker)
+  ticker.analysis    — root span for a full ticker run (duration_ms, token counts)
+  oracle.open/close  — ORACLE's opening and closing statements
+  axiom.report       — AXIOM's market data call (tokens, model)
+  vega.assess/challenge — VEGA's risk assessment + each debate round
+  edge.decide/respond   — EDGE's signal + each debate response
+  tool.web_search    — AXIOM's individual web search calls (query, duration)
+```
+
 ---
 
 ## Project structure
