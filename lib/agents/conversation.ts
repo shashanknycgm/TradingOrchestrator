@@ -2,7 +2,7 @@ import { oracleOpen, oracleClose, oracleArbitrate } from './oracle';
 import { axiomReport } from './axiom';
 import { vegaAssess, vegaChallenge } from './vega';
 import { edgeDecide, edgeRespond } from './edge';
-import { startSpan } from '../telemetry';
+import { startSpan, sendEvent } from '../telemetry';
 import type { TraceContext } from '../telemetry';
 import { MODEL } from '../anthropic';
 import type { ConversationMessage, AgentName, TradingSignal, MarketPrice, SendFn } from './types';
@@ -47,14 +47,26 @@ export async function runTickerConversation(
   const history: ConversationMessage[] = [];
   let lastMarketPrice: MarketPrice | undefined;
 
-  const add = (from: AgentName, to: string, content: string) => {
-    history.push({ from, to, content });
-  };
-
   send({ type: 'ticker_start', ticker });
 
   // Root span — one trace per ticker analysis
   const traceId = crypto.randomUUID().replace(/-/g, '');
+
+  // Adds message to local history AND sends full content to Honeycomb
+  const add = (from: AgentName, to: string, content: string) => {
+    history.push({ from, to, content });
+    sendEvent('agent.message', {
+      'event.type': 'agent_message',
+      'message.from': from,
+      'message.to': to,
+      // Truncate at 4000 chars to stay well within Honeycomb's 10 KB limit
+      'message.content': content.length > 4000 ? content.slice(0, 4000) + '…' : content,
+      'message.length': content.length,
+      ticker,
+      'trace.trace_id': traceId,
+      ...(sessionId ? { 'session.id': sessionId } : {}),
+    });
+  };
   const rootSpan = startSpan('ticker.analysis', {
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'analysis',

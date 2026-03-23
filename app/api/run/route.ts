@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { runTickerConversation } from '@/lib/agents/conversation';
+import { sendEvent } from '@/lib/telemetry';
 import type { TraceEvent } from '@/lib/agents/types';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,14 @@ export async function POST(req: NextRequest) {
   if (!tickers || tickers.length === 0) {
     return new Response(JSON.stringify({ error: 'No tickers provided' }), { status: 400 });
   }
+
+  // Record the human's "Run Agents" command as a Honeycomb event
+  sendEvent('human.input', {
+    'event.type': 'human_input',
+    'input.tickers': tickers.join(', '),
+    'input.ticker_count': tickers.length,
+    ...(sessionId ? { 'session.id': sessionId } : {}),
+  });
 
   const encoder = new TextEncoder();
 

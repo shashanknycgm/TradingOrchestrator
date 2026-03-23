@@ -39,6 +39,39 @@ export interface Span {
   end: (attrs?: Partial<GenAISpanAttributes>) => void;
 }
 
+/**
+ * Send a one-off event to Honeycomb (no duration tracking).
+ * Used for human input events and agent message content.
+ */
+export function sendEvent(
+  name: string,
+  attrs: Record<string, unknown>
+): void {
+  const apiKey = process.env.HONEYCOMB_API_KEY;
+  const dataset = process.env.HONEYCOMB_DATASET ?? 'trading-orchestrator';
+  if (!apiKey) return;
+
+  const event: Record<string, unknown> = {
+    name,
+    ...attrs,
+    timestamp: new Date().toISOString(),
+    'service.name': 'trading-orchestrator',
+  };
+
+  fetch(`${HONEYCOMB_EVENTS_API}/${encodeURIComponent(dataset)}`, {
+    method: 'POST',
+    headers: {
+      'X-Honeycomb-Team': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(event),
+  })
+    .then((res) => {
+      if (!res.ok) res.text().then((b) => console.error(`[Honeycomb] ${res.status}:`, b));
+    })
+    .catch((err) => console.error('[Honeycomb] fetch failed:', err));
+}
+
 export function startSpan(
   name: string,
   attrs: GenAISpanAttributes,
