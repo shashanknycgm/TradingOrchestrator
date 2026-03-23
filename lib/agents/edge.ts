@@ -18,13 +18,14 @@ STOP: [price, e.g. $118, or N/A]
 TARGET: [price, e.g. $140, or N/A]
 ---
 
-For the 'respond' phase — respond to VEGA's challenge. Either defend your call or adjust it.
-If you change your signal, include the structured block again with the updated values.
+For the 'respond' phase — respond DIRECTLY to VEGA's specific concern. Don't restate the whole thesis.
+Either defend with a concrete counter-argument (data point, catalyst, risk mitigation) or adjust your signal.
+If you change your signal, include the full structured block again with updated values.
 
 Rules you never break:
 - EXTREME risk → always WAIT
 - HIGH risk → require HIGH confidence to call BUY
-Keep it direct: 2-3 sentences + structured block.`;
+Keep it direct: 2-3 sentences + structured block (if changing signal).`;
 
 async function streamEdge(
   phase: 'decide' | 'respond',
@@ -48,10 +49,15 @@ async function streamEdge(
   let inputTokens = 0;
   let outputTokens = 0;
 
-  const userContent =
-    phase === 'decide'
-      ? `Conversation:\n\n${formatHistory(history)}\n\nGenerate the trading signal for ${ticker}. Commit.`
-      : `Conversation:\n\n${formatHistory(history)}\n\nRespond to VEGA's challenge. Defend or adjust your call.`;
+  let userContent: string;
+  if (phase === 'decide') {
+    userContent = `Conversation:\n\n${formatHistory(history)}\n\nGenerate the trading signal for ${ticker}. Commit.`;
+  } else {
+    // Quote VEGA's most recent challenge directly so EDGE responds to the specific point
+    const lastVega = [...history].reverse().find((m) => m.from === 'VEGA');
+    const vegaQuote = lastVega?.content.split('\n')[0] ?? '';
+    userContent = `Conversation:\n\n${formatHistory(history)}\n\nVEGA's specific challenge: "${vegaQuote}"\n\nRespond directly to that point — not the whole analysis. One concrete counter-argument, or concede and adjust your signal.`;
+  }
 
   send({ type: 'agent_chunk', ticker, from: 'EDGE' as AgentName, to, text: '' });
 

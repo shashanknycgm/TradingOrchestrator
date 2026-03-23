@@ -15,7 +15,10 @@ RISK: [LOW|MEDIUM|HIGH|EXTREME]
 CAN_ADD: [YES|NO]
 ---
 
-For the 'challenge' phase — directly challenge EDGE's BUY with a specific concern. No structured block needed.
+For the 'challenge' phase — directly challenge EDGE's position with a specific, concrete concern.
+On round 2 or 3, if EDGE made a genuinely strong point that addresses your concern, you may concede.
+To concede, start your message with exactly "CONCEDE:" and briefly acknowledge what convinced you.
+Otherwise, pivot to a different specific risk you haven't raised yet.
 
 Keep it sharp: 2-4 sentences max. You don't waste words.`;
 
@@ -24,7 +27,8 @@ async function streamVega(
   ticker: string,
   history: ConversationMessage[],
   send: SendFn,
-  trace?: TraceContext
+  trace?: TraceContext,
+  round?: number
 ): Promise<string> {
   const to = phase === 'challenge' ? 'EDGE' : 'all';
   const span = startSpan(`vega.${phase}`, {
@@ -34,6 +38,7 @@ async function streamVega(
     'gen_ai.request.max_tokens': 300,
     'gen_ai.agent.name': 'vega',
     'gen_ai.agent.role': 'risk_assessor',
+    ...(round !== undefined ? { 'debate.round': round } : {}),
   }, trace);
 
   const anthropic = getAnthropicClient();
@@ -41,10 +46,14 @@ async function streamVega(
   let inputTokens = 0;
   let outputTokens = 0;
 
-  const userContent =
-    phase === 'assess'
-      ? `Conversation:\n\n${formatHistory(history)}\n\nAssess risk for ${ticker}. Be skeptical. What are the real dangers here?`
-      : `Conversation:\n\n${formatHistory(history)}\n\nChallenge EDGE's BUY call. What specific risk are they underweighting?`;
+  let userContent: string;
+  if (phase === 'assess') {
+    userContent = `Conversation:\n\n${formatHistory(history)}\n\nAssess risk for ${ticker}. Be skeptical. What are the real dangers here?`;
+  } else if (round === 1) {
+    userContent = `Conversation:\n\n${formatHistory(history)}\n\nRound 1 — Challenge EDGE's call on ${ticker}. Pick the single most important risk they are underweighting. Be specific and sharp.`;
+  } else {
+    userContent = `Conversation:\n\n${formatHistory(history)}\n\nRound ${round} — EDGE has responded to your challenge. If their defense is genuinely solid and addresses your concern, start with "CONCEDE:" and acknowledge it. Otherwise, press a DIFFERENT specific risk you haven't raised yet. Don't repeat yourself.`;
+  }
 
   send({ type: 'agent_chunk', ticker, from: 'VEGA' as AgentName, to, text: '' });
 
@@ -72,5 +81,5 @@ async function streamVega(
 export const vegaAssess = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
   streamVega('assess', ticker, history, send, trace);
 
-export const vegaChallenge = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
-  streamVega('challenge', ticker, history, send, trace);
+export const vegaChallenge = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext, round = 1) =>
+  streamVega('challenge', ticker, history, send, trace, round);

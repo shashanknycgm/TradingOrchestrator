@@ -1,4 +1,4 @@
-import { oracleOpen, oracleClose } from './oracle';
+import { oracleOpen, oracleClose, oracleArbitrate } from './oracle';
 import { axiomReport } from './axiom';
 import { vegaAssess, vegaChallenge } from './vega';
 import { edgeDecide, edgeRespond } from './edge';
@@ -39,13 +39,10 @@ function parseSignal(ticker: string, text: string): TradingSignal {
   };
 }
 
-function parseRiskLevel(text: string): string {
-  return parseField(text, 'RISK')?.toUpperCase() ?? 'MEDIUM';
-}
-
 export async function runTickerConversation(
   ticker: string,
-  send: SendFn
+  send: SendFn,
+  sessionId?: string
 ): Promise<TradingSignal> {
   const history: ConversationMessage[] = [];
   let lastMarketPrice: MarketPrice | undefined;
@@ -65,10 +62,10 @@ export async function runTickerConversation(
     'gen_ai.agent.name': 'oracle',
     'gen_ai.agent.role': 'orchestrator',
     ticker,
-  } as Parameters<typeof startSpan>[1], { traceId });
+  } as Parameters<typeof startSpan>[1], { traceId, sessionId });
 
   // All agent spans are children of the root span
-  const childTrace: TraceContext = { traceId, parentSpanId: rootSpan.spanId };
+  const childTrace: TraceContext = { traceId, parentSpanId: rootSpan.spanId, sessionId };
 
   // 1. ORACLE opens
   const oracleOpenMsg = await oracleOpen(ticker, send, childTrace);
@@ -86,27 +83,61 @@ export async function runTickerConversation(
   const vegaMsg = await vegaAssess(ticker, history, send, childTrace);
   add('VEGA', 'all', vegaMsg);
 
-  // 4. EDGE decides
+  // 4. EDGE makes initial call
   const edgeMsg = await edgeDecide(ticker, history, send, childTrace);
   add('EDGE', 'all', edgeMsg);
 
-  // 5. Debate round — triggered if VEGA says HIGH/EXTREME and EDGE says BUY
-  const vegaRisk = parseRiskLevel(vegaMsg);
-  const edgeSignalType = parseField(edgeMsg, 'SIGNAL')?.toUpperCase();
+  // 5. Deliberation loop — always runs, min 1 round, max 3
+  const MAX_ROUNDS = 3;
+  let converged = false;
+  let lastEdgeMsg = edgeMsg;
 
-  if ((vegaRisk === 'HIGH' || vegaRisk === 'EXTREME') && edgeSignalType === 'BUY') {
-    const vegaChallengeMsg = await vegaChallenge(ticker, history, send, childTrace);
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
+    send({ type: 'debate_round_start', ticker, round });
+
+    // VEGA challenges EDGE
+    const vegaChallengeMsg = await vegaChallenge(ticker, history, send, childTrace, round);
     add('VEGA', 'EDGE', vegaChallengeMsg);
 
+    // Check if VEGA conceded
+    if (vegaChallengeMsg.trimStart().toUpperCase().startsWith('CONCEDE')) {
+      converged = true;
+      break;
+    }
+
+    // EDGE responds to VEGA's specific concern
     const edgeResponseMsg = await edgeRespond(ticker, history, send, childTrace);
     add('EDGE', 'VEGA', edgeResponseMsg);
+    lastEdgeMsg = edgeResponseMsg;
+
+    // Check if EDGE capitulated (changed signal to WAIT or HOLD)
+    const newSignal = parseField(edgeResponseMsg, 'SIGNAL')?.toUpperCase();
+    if (newSignal === 'WAIT' || newSignal === 'HOLD') {
+      converged = true;
+      break;
+    }
   }
 
-  // 6. Parse final signal from last EDGE message
-  const lastEdge = [...history].reverse().find((m) => m.from === 'EDGE');
-  const signal = parseSignal(ticker, lastEdge?.content ?? edgeMsg);
+  // 6. If no convergence after max rounds, ORACLE arbitrates
+  let finalSignalSource = lastEdgeMsg;
 
-  // 7. ORACLE closes
+  if (!converged) {
+    send({ type: 'oracle_arbitration', ticker });
+    const arbitrationMsg = await oracleArbitrate(ticker, history, send, childTrace);
+    add('ORACLE', 'all', arbitrationMsg);
+
+    // ORACLE's FINAL: field overrides EDGE's signal
+    const finalOverride = parseField(arbitrationMsg, 'FINAL')?.toUpperCase();
+    if (finalOverride === 'BUY' || finalOverride === 'HOLD' || finalOverride === 'WAIT') {
+      // Rewrite source text so parseSignal picks up ORACLE's FINAL as the SIGNAL
+      finalSignalSource = arbitrationMsg.replace(/FINAL:/i, 'SIGNAL:');
+    }
+  }
+
+  // 7. Parse final signal
+  const signal = parseSignal(ticker, finalSignalSource);
+
+  // 8. ORACLE closes
   const oracleCloseMsg = await oracleClose(ticker, history, signal, send, childTrace);
   add('ORACLE', 'all', oracleCloseMsg);
 

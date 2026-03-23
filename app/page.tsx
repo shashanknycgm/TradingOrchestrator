@@ -13,6 +13,8 @@ interface AgentMsg {
   to: string;
   text: string;
   done: boolean;
+  isMarker?: boolean;   // round separators / arbitration banners
+  markerLabel?: string;
 }
 
 interface TickerThread {
@@ -109,7 +111,19 @@ function SignalCard({ s }: { s: TradingSignal }) {
   );
 }
 
+function RoundMarker({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <div className="flex-1 h-px bg-[#2a2a1a]" />
+      <span className="text-[9px] tracking-widest text-[#445500] font-bold shrink-0">{label}</span>
+      <div className="flex-1 h-px bg-[#2a2a1a]" />
+    </div>
+  );
+}
+
 function AgentBubble({ msg }: { msg: AgentMsg }) {
+  if (msg.isMarker) return <RoundMarker label={msg.markerLabel ?? ''} />;
+
   const col = AGENT_COLORS[msg.from];
   const border = AGENT_BORDER[msg.from];
   const toLabel = msg.to !== 'all'
@@ -175,6 +189,16 @@ export default function Home() {
   const [status, setStatus] = useState<Status>('IDLE');
   const [threads, setThreads] = useState<TickerThread[]>([]);
   const traceRef = useRef<HTMLDivElement>(null);
+  // Stable session ID for the entire browser session — persists across multiple runs
+  const sessionId = useRef<string>(
+    typeof window !== 'undefined'
+      ? (sessionStorage.getItem('session_id') ?? (() => {
+          const id = crypto.randomUUID().replace(/-/g, '');
+          sessionStorage.setItem('session_id', id);
+          return id;
+        })())
+      : crypto.randomUUID().replace(/-/g, '')
+  );
 
   // Auto-scroll
   useEffect(() => {
@@ -247,6 +271,52 @@ export default function Home() {
         );
         break;
 
+      case 'debate_round_start':
+        setThreads((p) =>
+          p.map((thread) => {
+            if (thread.ticker !== evt.ticker) return thread;
+            return {
+              ...thread,
+              messages: [
+                ...thread.messages,
+                {
+                  id: uid(),
+                  from: 'ORACLE' as AgentName,
+                  to: 'all',
+                  text: '',
+                  done: true,
+                  isMarker: true,
+                  markerLabel: `DELIBERATION · ROUND ${evt.round}`,
+                },
+              ],
+            };
+          })
+        );
+        break;
+
+      case 'oracle_arbitration':
+        setThreads((p) =>
+          p.map((thread) => {
+            if (thread.ticker !== evt.ticker) return thread;
+            return {
+              ...thread,
+              messages: [
+                ...thread.messages,
+                {
+                  id: uid(),
+                  from: 'ORACLE' as AgentName,
+                  to: 'all',
+                  text: '',
+                  done: true,
+                  isMarker: true,
+                  markerLabel: 'ORACLE ARBITRATION',
+                },
+              ],
+            };
+          })
+        );
+        break;
+
       case 'ticker_complete':
         setThreads((p) =>
           p.map((thread) =>
@@ -278,7 +348,7 @@ export default function Home() {
       const resp = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tickers }),
+        body: JSON.stringify({ tickers, sessionId: sessionId.current }),
       });
 
       if (!resp.ok || !resp.body) {

@@ -19,6 +19,7 @@ const newId = () => crypto.randomUUID().replace(/-/g, '');
 export interface TraceContext {
   traceId: string;
   parentSpanId?: string;
+  sessionId?: string;
 }
 
 export interface GenAISpanAttributes {
@@ -66,6 +67,7 @@ export function startSpan(
         event['trace.trace_id'] = trace.traceId;
         event['trace.span_id'] = spanId;
         if (trace.parentSpanId) event['trace.parent_id'] = trace.parentSpanId;
+        if (trace.sessionId) event['session.id'] = trace.sessionId;
       }
 
       fetch(`${HONEYCOMB_EVENTS_API}/${encodeURIComponent(dataset)}`, {

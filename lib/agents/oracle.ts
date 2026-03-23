@@ -74,3 +74,16 @@ export async function oracleClose(
     send, trace
   );
 }
+
+export async function oracleArbitrate(
+  ticker: string,
+  history: ConversationMessage[],
+  send: SendFn,
+  trace?: TraceContext
+): Promise<string> {
+  return streamOracle(
+    ticker, 'all',
+    `VEGA and EDGE have reached maximum debate rounds on ${ticker} without converging. Full conversation:\n\n${formatHistory(history)}\n\nArbitrate. Weigh the unresolved disagreement and make the final binding call. State your reasoning in 1 sentence, then end with exactly:\n---\nFINAL: [BUY|HOLD|WAIT]\n---`,
+    send, trace
+  );
+}

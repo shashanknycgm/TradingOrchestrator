@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const { tickers }: { tickers: string[] } = await req.json();
+  const { tickers, sessionId }: { tickers: string[]; sessionId?: string } = await req.json();
 
   if (!tickers || tickers.length === 0) {
     return new Response(JSON.stringify({ error: 'No tickers provided' }), { status: 400 });
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
       try {
         // All ticker conversations run in parallel
-        await Promise.all(tickers.map((ticker: string) => runTickerConversation(ticker, send)));
+        await Promise.all(tickers.map((ticker: string) => runTickerConversation(ticker, send, sessionId)));
         send({ type: 'complete' });
       } catch (err) {
         send({ type: 'error', message: String(err) });

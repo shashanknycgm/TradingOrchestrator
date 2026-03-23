@@ -32,6 +32,8 @@ export type TraceEvent =
   | { type: 'agent_chunk'; ticker: string; from: AgentName; to: string; text: string }
   | { type: 'agent_message_done'; ticker: string; from: AgentName; to: string; content: string }
   | { type: 'price_update'; ticker: string; price: MarketPrice }
+  | { type: 'debate_round_start'; ticker: string; round: number }
+  | { type: 'oracle_arbitration'; ticker: string }
   | { type: 'ticker_complete'; ticker: string; signal: TradingSignal }
   | { type: 'complete' }
   | { type: 'error'; message: string };
