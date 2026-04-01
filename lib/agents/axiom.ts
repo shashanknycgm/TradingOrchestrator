@@ -31,10 +31,11 @@ export async function axiomReport(
   send: SendFn,
   trace?: TraceContext
 ): Promise<{ message: string; price?: MarketPrice }> {
-  const span = startSpan('axiom.report', {
+  const span = startSpan(`chat ${HAIKU}`, {
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'chat',
     'gen_ai.request.model': HAIKU,
+    'gen_ai.response.model': HAIKU,
     'gen_ai.request.max_tokens': 1500,
     'gen_ai.agent.name': 'axiom',
     'gen_ai.agent.role': 'market_intel',
@@ -73,17 +74,18 @@ export async function axiomReport(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const b = block as any;
         if (b.type === 'server_tool_use' && b.name === 'web_search' && trace) {
-          const toolSpan = startSpan('tool.web_search', {
+          const query = String(b.input?.query ?? '');
+          const toolSpan = startSpan('execute_tool web_search', {
             'gen_ai.system': 'anthropic',
-            'gen_ai.operation.name': 'tool_call',
+            'gen_ai.operation.name': 'execute_tool',
             'gen_ai.request.model': HAIKU,
             'gen_ai.agent.name': 'axiom',
             'gen_ai.agent.role': 'market_intel',
             'gen_ai.tool.name': 'web_search',
-            'tool.call.id': String(b.id ?? ''),
-            'tool.input.query': String(b.input?.query ?? ''),
-          }, { traceId: trace.traceId, parentSpanId: span.spanId });
-          toolSpan.end();
+            'gen_ai.tool.call.id': String(b.id ?? ''),
+            'gen_ai.tool.call.arguments': JSON.stringify({ query }),
+          }, { traceId: trace.traceId, parentSpanId: span.spanId, sessionId: trace.sessionId, conversationId: trace.conversationId });
+          toolSpan.end({ 'gen_ai.response.finish_reasons': 'tool_use' });
         }
       }
     }

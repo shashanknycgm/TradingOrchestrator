@@ -35,10 +35,11 @@ async function streamEdge(
   trace?: TraceContext
 ): Promise<string> {
   const to = phase === 'respond' ? 'VEGA' : 'all';
-  const span = startSpan(`edge.${phase}`, {
+  const span = startSpan(`chat ${MODEL}`, {
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'chat',
     'gen_ai.request.model': MODEL,
+    'gen_ai.response.model': MODEL,
     'gen_ai.request.max_tokens': 350,
     'gen_ai.agent.name': 'edge',
     'gen_ai.agent.role': 'signal_generator',

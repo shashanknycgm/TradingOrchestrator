@@ -23,7 +23,6 @@ function parseSignal(ticker: string, text: string): TradingSignal {
   const rawTf = parseField(text, 'TIMEFRAME')?.toUpperCase();
   const timeframe: TradingSignal['timeframe'] = rawTf === 'DAY' ? 'DAY' : 'SWING';
 
-  // Reasoning = text before the structured block
   const blockIdx = text.lastIndexOf('---');
   const reasoning = (blockIdx > 0 ? text.slice(0, blockIdx) : text).trim().slice(0, 400);
 
@@ -49,8 +48,48 @@ export async function runTickerConversation(
 
   send({ type: 'ticker_start', ticker });
 
-  // Root span — one trace per ticker analysis
+  // One trace + conversation per ticker analysis
   const traceId = crypto.randomUUID().replace(/-/g, '');
+  const conversationId = traceId; // conversation = one ticker run
+
+  // Root span: create_agent oracle (Agentic Timeline spec)
+  const rootSpan = startSpan(`create_agent oracle`, {
+    'gen_ai.system': 'anthropic',
+    'gen_ai.operation.name': 'create_agent',
+    'gen_ai.request.model': MODEL,
+    'gen_ai.agent.name': 'oracle',
+    'gen_ai.agent.role': 'orchestrator',
+    ticker,
+  } as Parameters<typeof startSpan>[1], { traceId, sessionId, conversationId });
+
+  // childTrace: all direct children of root span
+  const childTrace: TraceContext = { traceId, parentSpanId: rootSpan.spanId, sessionId, conversationId };
+
+  // Helper: emit invoke_agent span (oracle → target), run fn under it
+  const invokeAgent = async <T>(
+    agentName: string,
+    fn: (agentTrace: TraceContext) => Promise<T>
+  ): Promise<T> => {
+    const invokeSpan = startSpan(`invoke_agent ${agentName}`, {
+      'gen_ai.system': 'anthropic',
+      'gen_ai.operation.name': 'invoke_agent',
+      'gen_ai.request.model': MODEL,
+      'gen_ai.agent.name': 'oracle',
+      'gen_ai.agent.role': 'orchestrator',
+      ticker,
+    } as Parameters<typeof startSpan>[1], childTrace);
+
+    const agentTrace: TraceContext = {
+      traceId,
+      parentSpanId: invokeSpan.spanId,
+      sessionId,
+      conversationId,
+    };
+
+    const result = await fn(agentTrace);
+    invokeSpan.end();
+    return result;
+  };
 
   // Adds message to local history AND sends full content to Honeycomb
   const add = (from: AgentName, to: string, content: string) => {
@@ -59,44 +98,39 @@ export async function runTickerConversation(
       'event.type': 'agent_message',
       'message.from': from,
       'message.to': to,
-      // Truncate at 4000 chars to stay well within Honeycomb's 10 KB limit
       'message.content': content.length > 4000 ? content.slice(0, 4000) + '…' : content,
       'message.length': content.length,
       ticker,
+      'gen_ai.conversation.id': conversationId,
       'trace.trace_id': traceId,
       ...(sessionId ? { 'session.id': sessionId } : {}),
     });
   };
-  const rootSpan = startSpan('ticker.analysis', {
-    'gen_ai.system': 'anthropic',
-    'gen_ai.operation.name': 'analysis',
-    'gen_ai.request.model': MODEL,
-    'gen_ai.agent.name': 'oracle',
-    'gen_ai.agent.role': 'orchestrator',
-    ticker,
-  } as Parameters<typeof startSpan>[1], { traceId, sessionId });
 
-  // All agent spans are children of the root span
-  const childTrace: TraceContext = { traceId, parentSpanId: rootSpan.spanId, sessionId };
-
-  // 1. ORACLE opens
+  // 1. ORACLE opens (oracle's own chat — direct child of root, no invoke_agent wrapper)
   const oracleOpenMsg = await oracleOpen(ticker, send, childTrace);
   add('ORACLE', 'all', oracleOpenMsg);
 
-  // 2. AXIOM reports (web search — non-streaming)
-  const { message: axiomMsg, price } = await axiomReport(ticker, history, send, childTrace);
+  // 2. ORACLE invokes AXIOM
+  const { message: axiomMsg, price } = await invokeAgent('axiom', (t) =>
+    axiomReport(ticker, history, send, t)
+  );
   add('AXIOM', 'all', axiomMsg);
   if (price) {
     lastMarketPrice = price;
     send({ type: 'price_update', ticker, price });
   }
 
-  // 3. VEGA assesses
-  const vegaMsg = await vegaAssess(ticker, history, send, childTrace);
+  // 3. ORACLE invokes VEGA (risk assessment)
+  const vegaMsg = await invokeAgent('vega', (t) =>
+    vegaAssess(ticker, history, send, t)
+  );
   add('VEGA', 'all', vegaMsg);
 
-  // 4. EDGE makes initial call
-  const edgeMsg = await edgeDecide(ticker, history, send, childTrace);
+  // 4. ORACLE invokes EDGE (initial signal)
+  const edgeMsg = await invokeAgent('edge', (t) =>
+    edgeDecide(ticker, history, send, t)
+  );
   add('EDGE', 'all', edgeMsg);
 
   // 5. Deliberation loop — always runs, min 1 round, max 3
@@ -107,22 +141,24 @@ export async function runTickerConversation(
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     send({ type: 'debate_round_start', ticker, round });
 
-    // VEGA challenges EDGE
-    const vegaChallengeMsg = await vegaChallenge(ticker, history, send, childTrace, round);
+    // ORACLE invokes VEGA to challenge
+    const vegaChallengeMsg = await invokeAgent('vega', (t) =>
+      vegaChallenge(ticker, history, send, t, round)
+    );
     add('VEGA', 'EDGE', vegaChallengeMsg);
 
-    // Check if VEGA conceded
     if (vegaChallengeMsg.trimStart().toUpperCase().startsWith('CONCEDE')) {
       converged = true;
       break;
     }
 
-    // EDGE responds to VEGA's specific concern
-    const edgeResponseMsg = await edgeRespond(ticker, history, send, childTrace);
+    // ORACLE invokes EDGE to respond
+    const edgeResponseMsg = await invokeAgent('edge', (t) =>
+      edgeRespond(ticker, history, send, t)
+    );
     add('EDGE', 'VEGA', edgeResponseMsg);
     lastEdgeMsg = edgeResponseMsg;
 
-    // Check if EDGE capitulated (changed signal to WAIT or HOLD)
     const newSignal = parseField(edgeResponseMsg, 'SIGNAL')?.toUpperCase();
     if (newSignal === 'WAIT' || newSignal === 'HOLD') {
       converged = true;
@@ -130,7 +166,7 @@ export async function runTickerConversation(
     }
   }
 
-  // 6. If no convergence after max rounds, ORACLE arbitrates
+  // 6. If no convergence, ORACLE arbitrates
   let finalSignalSource = lastEdgeMsg;
 
   if (!converged) {
@@ -138,10 +174,8 @@ export async function runTickerConversation(
     const arbitrationMsg = await oracleArbitrate(ticker, history, send, childTrace);
     add('ORACLE', 'all', arbitrationMsg);
 
-    // ORACLE's FINAL: field overrides EDGE's signal
     const finalOverride = parseField(arbitrationMsg, 'FINAL')?.toUpperCase();
     if (finalOverride === 'BUY' || finalOverride === 'HOLD' || finalOverride === 'WAIT') {
-      // Rewrite source text so parseSignal picks up ORACLE's FINAL as the SIGNAL
       finalSignalSource = arbitrationMsg.replace(/FINAL:/i, 'SIGNAL:');
     }
   }
@@ -149,11 +183,10 @@ export async function runTickerConversation(
   // 7. Parse final signal
   const signal = parseSignal(ticker, finalSignalSource);
 
-  // 8. ORACLE closes
+  // 8. ORACLE closes (direct child of root)
   const oracleCloseMsg = await oracleClose(ticker, history, signal, send, childTrace);
   add('ORACLE', 'all', oracleCloseMsg);
 
-  // Close root span
   rootSpan.end({ ticker } as Parameters<typeof rootSpan.end>[0]);
 
   send({ type: 'ticker_complete', ticker, signal });

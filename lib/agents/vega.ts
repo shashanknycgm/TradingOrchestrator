@@ -31,10 +31,11 @@ async function streamVega(
   round?: number
 ): Promise<string> {
   const to = phase === 'challenge' ? 'EDGE' : 'all';
-  const span = startSpan(`vega.${phase}`, {
+  const span = startSpan(`chat ${MODEL}`, {
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'chat',
     'gen_ai.request.model': MODEL,
+    'gen_ai.response.model': MODEL,
     'gen_ai.request.max_tokens': 300,
     'gen_ai.agent.name': 'vega',
     'gen_ai.agent.role': 'risk_assessor',

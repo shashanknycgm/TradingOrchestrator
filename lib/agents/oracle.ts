@@ -16,10 +16,11 @@ async function streamOracle(
   send: SendFn,
   trace?: TraceContext
 ): Promise<string> {
-  const span = startSpan('oracle.message', {
+  const span = startSpan(`chat ${MODEL}`, {
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'chat',
     'gen_ai.request.model': MODEL,
+    'gen_ai.response.model': MODEL,
     'gen_ai.request.max_tokens': 150,
     'gen_ai.agent.name': 'oracle',
     'gen_ai.agent.role': 'orchestrator',
