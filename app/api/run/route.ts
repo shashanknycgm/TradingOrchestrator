@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     'event.type': 'human_input',
     'input.tickers': tickers.join(', '),
     'input.ticker_count': tickers.length,
-    ...(sessionId ? { 'session.id': sessionId } : {}),
+    ...(sessionId ? { 'gen_ai.conversation.id': sessionId } : {}),
   });
 
   const encoder = new TextEncoder();

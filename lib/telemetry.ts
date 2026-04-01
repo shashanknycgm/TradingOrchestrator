@@ -23,8 +23,7 @@ const newId = () => crypto.randomUUID().replace(/-/g, '');
 export interface TraceContext {
   traceId: string;
   parentSpanId?: string;
-  sessionId?: string;
-  conversationId?: string;
+  conversationId?: string; // gen_ai.conversation.id — groups all traces in a session
 }
 
 export interface GenAISpanAttributes {
@@ -87,7 +86,6 @@ export function sendEvent(
     event['trace.trace_id'] = trace.traceId;
     event['trace.span_id'] = newId();           // unique ID for this event
     if (trace.parentSpanId) event['trace.parent_id'] = trace.parentSpanId;
-    if (trace.sessionId) event['session.id'] = trace.sessionId;
     if (trace.conversationId) event['gen_ai.conversation.id'] = trace.conversationId;
   }
 
@@ -118,7 +116,6 @@ export function startSpan(
         event['trace.trace_id'] = trace.traceId;
         event['trace.span_id'] = spanId;
         if (trace.parentSpanId) event['trace.parent_id'] = trace.parentSpanId;
-        if (trace.sessionId) event['session.id'] = trace.sessionId;
         if (trace.conversationId) event['gen_ai.conversation.id'] = trace.conversationId;
       }
 

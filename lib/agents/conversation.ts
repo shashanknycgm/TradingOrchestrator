@@ -48,9 +48,9 @@ export async function runTickerConversation(
 
   send({ type: 'ticker_start', ticker });
 
-  // One trace + conversation per ticker analysis
+  // One trace per ticker; conversationId groups ALL traces across the session
   const traceId = crypto.randomUUID().replace(/-/g, '');
-  const conversationId = traceId; // conversation = one ticker run
+  const conversationId = sessionId; // gen_ai.conversation.id = session ID
 
   // Root span: create_agent oracle (Agentic Timeline spec)
   const rootSpan = startSpan(`create_agent oracle`, {
@@ -60,10 +60,10 @@ export async function runTickerConversation(
     'gen_ai.agent.name': 'oracle',
     'gen_ai.agent.role': 'orchestrator',
     ticker,
-  } as Parameters<typeof startSpan>[1], { traceId, sessionId, conversationId });
+  } as Parameters<typeof startSpan>[1], { traceId, conversationId });
 
   // childTrace: all direct children of root span
-  const childTrace: TraceContext = { traceId, parentSpanId: rootSpan.spanId, sessionId, conversationId };
+  const childTrace: TraceContext = { traceId, parentSpanId: rootSpan.spanId, conversationId };
 
   // Helper: emit invoke_agent span (oracle → target), run fn under it
   const invokeAgent = async <T>(
@@ -82,7 +82,6 @@ export async function runTickerConversation(
     const agentTrace: TraceContext = {
       traceId,
       parentSpanId: invokeSpan.spanId,
-      sessionId,
       conversationId,
     };
 

@@ -84,7 +84,7 @@ export async function axiomReport(
             'gen_ai.tool.name': 'web_search',
             'gen_ai.tool.call.id': String(b.id ?? ''),
             'gen_ai.tool.call.arguments': JSON.stringify({ query }),
-          }, { traceId: trace.traceId, parentSpanId: span.spanId, sessionId: trace.sessionId, conversationId: trace.conversationId });
+          }, { traceId: trace.traceId, parentSpanId: span.spanId, conversationId: trace.conversationId });
           toolSpan.end({ 'gen_ai.response.finish_reasons': 'tool_use' });
         }
       }
