@@ -91,7 +91,8 @@ export async function runTickerConversation(
     return result;
   };
 
-  // Adds message to local history AND sends full content to Honeycomb
+  // Adds message to local history AND sends full content to Honeycomb as a
+  // properly parented trace event (trace.span_id + trace.parent_id included).
   const add = (from: AgentName, to: string, content: string) => {
     history.push({ from, to, content });
     sendEvent('agent.message', {
@@ -101,10 +102,7 @@ export async function runTickerConversation(
       'message.content': content.length > 4000 ? content.slice(0, 4000) + '…' : content,
       'message.length': content.length,
       ticker,
-      'gen_ai.conversation.id': conversationId,
-      'trace.trace_id': traceId,
-      ...(sessionId ? { 'session.id': sessionId } : {}),
-    });
+    }, childTrace);
   };
 
   // 1. ORACLE opens (oracle's own chat — direct child of root, no invoke_agent wrapper)

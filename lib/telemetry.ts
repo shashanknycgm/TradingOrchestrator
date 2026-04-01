@@ -68,10 +68,30 @@ function post(event: Record<string, unknown>): void {
 
 /**
  * Send a one-off event to Honeycomb (no duration tracking).
- * Used for human input events and agent message content.
+ * Pass a TraceContext to anchor the event in the trace hierarchy with proper
+ * trace.span_id and trace.parent_id — required for Honeycomb to place it correctly.
  */
-export function sendEvent(name: string, attrs: Record<string, unknown>): void {
-  post({ name, ...attrs, timestamp: new Date().toISOString(), 'service.name': 'trading-orchestrator' });
+export function sendEvent(
+  name: string,
+  attrs: Record<string, unknown>,
+  trace?: TraceContext
+): void {
+  const event: Record<string, unknown> = {
+    name,
+    ...attrs,
+    timestamp: new Date().toISOString(),
+    'service.name': 'trading-orchestrator',
+  };
+
+  if (trace) {
+    event['trace.trace_id'] = trace.traceId;
+    event['trace.span_id'] = newId();           // unique ID for this event
+    if (trace.parentSpanId) event['trace.parent_id'] = trace.parentSpanId;
+    if (trace.sessionId) event['session.id'] = trace.sessionId;
+    if (trace.conversationId) event['gen_ai.conversation.id'] = trace.conversationId;
+  }
+
+  post(event);
 }
 
 export function startSpan(
