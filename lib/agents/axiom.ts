@@ -1,4 +1,6 @@
 import { getAnthropicClient } from '../anthropic';
+import { startSpan } from '../telemetry';
+import type { TraceContext } from '../telemetry';
 import { formatHistory } from './utils';
 import type { ConversationMessage, AgentName, MarketPrice, SendFn } from './types';
 
@@ -27,9 +29,22 @@ export async function axiomReport(
   ticker: string,
   history: ConversationMessage[],
   send: SendFn,
+  trace: TraceContext,
 ): Promise<{ message: string; price?: MarketPrice }> {
+  const span = startSpan(`chat ${HAIKU}`, {
+    'gen_ai.system': 'anthropic',
+    'gen_ai.operation.name': 'chat',
+    'gen_ai.request.model': HAIKU,
+    'gen_ai.response.model': HAIKU,
+    'gen_ai.agent.name': 'axiom',
+    'gen_ai.request.max_tokens': 1500,
+    ticker,
+  }, trace);
+
   const anthropic = getAnthropicClient();
   let rawText = '';
+  let inputTokens = 0;
+  let outputTokens = 0;
 
   send({ type: 'agent_chunk', ticker, from: 'AXIOM' as AgentName, to: 'all', text: '' });
 
@@ -52,9 +67,38 @@ export async function axiomReport(
     );
 
     for (const block of response.content) {
-      if (block.type === 'text') rawText += block.text;
+      if (block.type === 'text') {
+        rawText += block.text;
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const b = block as any;
+        if (b.type === 'server_tool_use' && b.name === 'web_search') {
+          const query = String(b.input?.query ?? '');
+          // AXIOM emits execute_tool span as child of its own chat span
+          const toolSpan = startSpan('execute_tool web_search', {
+            'gen_ai.system': 'anthropic',
+            'gen_ai.operation.name': 'execute_tool',
+            'gen_ai.agent.name': 'axiom',
+            'gen_ai.tool.name': 'web_search',
+            'gen_ai.tool.call.id': String(b.id ?? ''),
+            'gen_ai.tool.call.arguments': JSON.stringify({ query }),
+            'gen_ai.request.model': HAIKU,
+            ticker,
+          }, { traceId: trace.traceId, parentSpanId: span.spanId, conversationId: trace.conversationId });
+          toolSpan.end({ 'gen_ai.response.finish_reasons': 'tool_use' });
+        }
+      }
     }
+
+    inputTokens = response.usage.input_tokens;
+    outputTokens = response.usage.output_tokens;
+    span.end({
+      'gen_ai.usage.input_tokens': inputTokens,
+      'gen_ai.usage.output_tokens': outputTokens,
+      'gen_ai.response.finish_reasons': 'end_turn',
+    });
   } catch (err) {
+    span.end({ 'error.type': 'tool_error', 'gen_ai.response.finish_reasons': 'error' });
     rawText = `Web search failed: ${String(err)}. Operating without live data.`;
   }
 

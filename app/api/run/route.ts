@@ -12,6 +12,10 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: 'No tickers provided' }), { status: 400 });
   }
 
+  // One conversationId per "Run Agents" click — shared across all ticker traces
+  // This is gen_ai.conversation.id in the Agentic Timeline
+  const conversationId = crypto.randomUUID().replace(/-/g, '');
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -25,7 +29,9 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        await Promise.all(tickers.map((ticker: string) => runTickerConversation(ticker, send)));
+        await Promise.all(
+          tickers.map((ticker: string) => runTickerConversation(ticker, send, conversationId))
+        );
         send({ type: 'complete' });
       } catch (err) {
         send({ type: 'error', message: String(err) });

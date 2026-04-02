@@ -2,6 +2,9 @@ import { oracleOpen, oracleClose, oracleArbitrate } from './oracle';
 import { axiomReport } from './axiom';
 import { vegaAssess, vegaChallenge } from './vega';
 import { edgeDecide, edgeRespond } from './edge';
+import { startSpan } from '../telemetry';
+import type { TraceContext } from '../telemetry';
+import { MODEL } from '../anthropic';
 import type { ConversationMessage, AgentName, TradingSignal, MarketPrice, SendFn } from './types';
 
 function parseField(text: string, key: string): string | undefined {
@@ -38,6 +41,7 @@ function parseSignal(ticker: string, text: string): TradingSignal {
 export async function runTickerConversation(
   ticker: string,
   send: SendFn,
+  conversationId: string,
 ): Promise<TradingSignal> {
   const history: ConversationMessage[] = [];
   let lastMarketPrice: MarketPrice | undefined;
@@ -48,24 +52,74 @@ export async function runTickerConversation(
     history.push({ from, to, content });
   };
 
-  // 1. ORACLE opens
-  const oracleOpenMsg = await oracleOpen(ticker, send);
+  // One trace per ticker; all traces share the same conversationId (one per "Run Agents" click)
+  const traceId = crypto.randomUUID().replace(/-/g, '');
+
+  // Root span: ORACLE creates the agent session
+  const rootSpan = startSpan('create_agent oracle', {
+    'gen_ai.system': 'anthropic',
+    'gen_ai.operation.name': 'create_agent',
+    'gen_ai.agent.name': 'oracle',
+    'gen_ai.request.model': MODEL,
+    ticker,
+  }, { traceId, conversationId });
+
+  // Direct children of root span
+  const rootTrace: TraceContext = { traceId, parentSpanId: rootSpan.spanId, conversationId };
+
+  /**
+   * Emits an invoke_agent span from ORACLE to the target agent,
+   * then runs the agent function as a child of that span.
+   * Per spec: the *calling* agent (ORACLE) emits invoke_agent,
+   * the called agent emits its own chat spans under its own gen_ai.agent.name.
+   */
+  const invokeAgent = async <T>(
+    agentName: string,
+    fn: (agentTrace: TraceContext) => Promise<T>,
+  ): Promise<T> => {
+    const invokeSpan = startSpan(`invoke_agent ${agentName}`, {
+      'gen_ai.system': 'anthropic',
+      'gen_ai.operation.name': 'invoke_agent',
+      'gen_ai.agent.name': 'oracle',
+      'gen_ai.request.model': MODEL,
+      ticker,
+    }, rootTrace);
+
+    const agentTrace: TraceContext = {
+      traceId,
+      parentSpanId: invokeSpan.spanId,
+      conversationId,
+    };
+
+    const result = await fn(agentTrace);
+    invokeSpan.end();
+    return result;
+  };
+
+  // 1. ORACLE opens (ORACLE's own chat — direct child of root, no invoke_agent wrapper)
+  const oracleOpenMsg = await oracleOpen(ticker, send, rootTrace);
   add('ORACLE', 'all', oracleOpenMsg);
 
-  // 2. AXIOM reports (web search)
-  const { message: axiomMsg, price } = await axiomReport(ticker, history, send);
+  // 2. ORACLE invokes AXIOM
+  const { message: axiomMsg, price } = await invokeAgent('axiom', (t) =>
+    axiomReport(ticker, history, send, t)
+  );
   add('AXIOM', 'all', axiomMsg);
   if (price) {
     lastMarketPrice = price;
     send({ type: 'price_update', ticker, price });
   }
 
-  // 3. VEGA assesses risk
-  const vegaMsg = await vegaAssess(ticker, history, send);
+  // 3. ORACLE invokes VEGA (risk assessment)
+  const vegaMsg = await invokeAgent('vega', (t) =>
+    vegaAssess(ticker, history, send, t)
+  );
   add('VEGA', 'all', vegaMsg);
 
-  // 4. EDGE makes initial signal call
-  const edgeMsg = await edgeDecide(ticker, history, send);
+  // 4. ORACLE invokes EDGE (initial signal)
+  const edgeMsg = await invokeAgent('edge', (t) =>
+    edgeDecide(ticker, history, send, t)
+  );
   add('EDGE', 'all', edgeMsg);
 
   // 5. Deliberation loop — min 1 round, max 3
@@ -76,7 +130,9 @@ export async function runTickerConversation(
   for (let round = 1; round <= MAX_ROUNDS; round++) {
     send({ type: 'debate_round_start', ticker, round });
 
-    const vegaChallengeMsg = await vegaChallenge(ticker, history, send, round);
+    const vegaChallengeMsg = await invokeAgent('vega', (t) =>
+      vegaChallenge(ticker, history, send, t, round)
+    );
     add('VEGA', 'EDGE', vegaChallengeMsg);
 
     if (vegaChallengeMsg.trimStart().toUpperCase().startsWith('CONCEDE')) {
@@ -84,7 +140,9 @@ export async function runTickerConversation(
       break;
     }
 
-    const edgeResponseMsg = await edgeRespond(ticker, history, send);
+    const edgeResponseMsg = await invokeAgent('edge', (t) =>
+      edgeRespond(ticker, history, send, t)
+    );
     add('EDGE', 'VEGA', edgeResponseMsg);
     lastEdgeMsg = edgeResponseMsg;
 
@@ -100,7 +158,7 @@ export async function runTickerConversation(
 
   if (!converged) {
     send({ type: 'oracle_arbitration', ticker });
-    const arbitrationMsg = await oracleArbitrate(ticker, history, send);
+    const arbitrationMsg = await oracleArbitrate(ticker, history, send, rootTrace);
     add('ORACLE', 'all', arbitrationMsg);
 
     const finalOverride = parseField(arbitrationMsg, 'FINAL')?.toUpperCase();
@@ -113,8 +171,10 @@ export async function runTickerConversation(
   const signal = parseSignal(ticker, finalSignalSource);
 
   // 8. ORACLE closes
-  const oracleCloseMsg = await oracleClose(ticker, history, signal, send);
+  const oracleCloseMsg = await oracleClose(ticker, history, signal, send, rootTrace);
   add('ORACLE', 'all', oracleCloseMsg);
+
+  rootSpan.end({ ticker, 'gen_ai.response.finish_reasons': 'stop' });
 
   send({ type: 'ticker_complete', ticker, signal });
   void lastMarketPrice;
