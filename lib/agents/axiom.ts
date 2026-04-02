@@ -35,7 +35,6 @@ export async function axiomReport(
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'chat',
     'gen_ai.request.model': HAIKU,
-    'gen_ai.response.model': HAIKU,
     'gen_ai.agent.name': 'axiom',
     'gen_ai.request.max_tokens': 1500,
     ticker,
@@ -93,9 +92,10 @@ export async function axiomReport(
     inputTokens = response.usage.input_tokens;
     outputTokens = response.usage.output_tokens;
     span.end({
+      'gen_ai.response.model': response.model,  // actual model from API response
       'gen_ai.usage.input_tokens': inputTokens,
       'gen_ai.usage.output_tokens': outputTokens,
-      'gen_ai.response.finish_reasons': 'end_turn',
+      'gen_ai.response.finish_reasons': response.stop_reason ?? 'end_turn',
     });
   } catch (err) {
     span.end({ 'error.type': 'tool_error', 'gen_ai.response.finish_reasons': 'error' });

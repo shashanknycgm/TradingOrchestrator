@@ -20,7 +20,6 @@ async function streamOracle(
     'gen_ai.system': 'anthropic',
     'gen_ai.operation.name': 'chat',
     'gen_ai.request.model': MODEL,
-    'gen_ai.response.model': MODEL,
     'gen_ai.agent.name': 'oracle',
     'gen_ai.request.max_tokens': 150,
     ticker,
@@ -31,6 +30,7 @@ async function streamOracle(
   let inputTokens = 0;
   let outputTokens = 0;
   let stopReason = '';
+  let responseModel = '';
 
   send({ type: 'agent_chunk', ticker, from: 'ORACLE' as AgentName, to, text: '' });
 
@@ -47,19 +47,24 @@ async function streamOracle(
         fullText += event.delta.text;
         send({ type: 'agent_chunk', ticker, from: 'ORACLE' as AgentName, to, text: event.delta.text });
       }
-      if (event.type === 'message_start') inputTokens = event.message.usage.input_tokens;
+      if (event.type === 'message_start') {
+        inputTokens = event.message.usage.input_tokens;
+        responseModel = event.message.model;
+      }
       if (event.type === 'message_delta') {
         outputTokens = event.usage.output_tokens;
         stopReason = event.delta.stop_reason ?? '';
       }
     }
     span.end({
+      'gen_ai.response.model': responseModel,
       'gen_ai.usage.input_tokens': inputTokens,
       'gen_ai.usage.output_tokens': outputTokens,
       'gen_ai.response.finish_reasons': stopReason,
     });
   } catch (err) {
     span.end({
+      'gen_ai.response.model': responseModel,
       'gen_ai.usage.input_tokens': inputTokens,
       'gen_ai.usage.output_tokens': outputTokens,
       'gen_ai.response.finish_reasons': 'cancelled',
