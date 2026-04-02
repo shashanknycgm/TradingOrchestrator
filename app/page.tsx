@@ -189,16 +189,6 @@ export default function Home() {
   const [status, setStatus] = useState<Status>('IDLE');
   const [threads, setThreads] = useState<TickerThread[]>([]);
   const traceRef = useRef<HTMLDivElement>(null);
-  // Stable session ID for the entire browser session — persists across multiple runs
-  const sessionId = useRef<string>(
-    typeof window !== 'undefined'
-      ? (sessionStorage.getItem('session_id') ?? (() => {
-          const id = crypto.randomUUID().replace(/-/g, '');
-          sessionStorage.setItem('session_id', id);
-          return id;
-        })())
-      : crypto.randomUUID().replace(/-/g, '')
-  );
 
   // Auto-scroll
   useEffect(() => {
@@ -348,7 +338,7 @@ export default function Home() {
       const resp = await fetch('/api/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tickers, sessionId: sessionId.current }),
+        body: JSON.stringify({ tickers }),
       });
 
       if (!resp.ok || !resp.body) {

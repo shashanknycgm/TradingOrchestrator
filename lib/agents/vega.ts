@@ -1,6 +1,4 @@
 import { getAnthropicClient, MODEL } from '../anthropic';
-import { startSpan } from '../telemetry';
-import type { TraceContext } from '../telemetry';
 import { formatHistory } from './utils';
 import type { ConversationMessage, AgentName, SendFn } from './types';
 
@@ -27,26 +25,11 @@ async function streamVega(
   ticker: string,
   history: ConversationMessage[],
   send: SendFn,
-  trace?: TraceContext,
   round?: number
 ): Promise<string> {
   const to = phase === 'challenge' ? 'EDGE' : 'all';
-  const span = startSpan(`chat ${MODEL}`, {
-    'gen_ai.system': 'anthropic',
-    'gen_ai.operation.name': 'chat',
-    'gen_ai.request.model': MODEL,
-    'gen_ai.response.model': MODEL,
-    'gen_ai.request.max_tokens': 300,
-    'gen_ai.agent.name': 'vega',
-    'gen_ai.agent.role': 'risk_assessor',
-    ...(round !== undefined ? { 'debate.round': round } : {}),
-  }, trace);
-
   const anthropic = getAnthropicClient();
   let fullText = '';
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let stopReason = '';
 
   let userContent: string;
   if (phase === 'assess') {
@@ -66,38 +49,19 @@ async function streamVega(
     messages: [{ role: 'user', content: userContent }],
   });
 
-  try {
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        fullText += event.delta.text;
-        send({ type: 'agent_chunk', ticker, from: 'VEGA' as AgentName, to, text: event.delta.text });
-      }
-      if (event.type === 'message_start') inputTokens = event.message.usage.input_tokens;
-      if (event.type === 'message_delta') {
-        outputTokens = event.usage.output_tokens;
-        stopReason = event.delta.stop_reason ?? '';
-      }
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      fullText += event.delta.text;
+      send({ type: 'agent_chunk', ticker, from: 'VEGA' as AgentName, to, text: event.delta.text });
     }
-    span.end({
-      'gen_ai.usage.input_tokens': inputTokens,
-      'gen_ai.usage.output_tokens': outputTokens,
-      'gen_ai.response.finish_reasons': stopReason,
-    });
-  } catch (err) {
-    span.end({
-      'gen_ai.usage.input_tokens': inputTokens,
-      'gen_ai.usage.output_tokens': outputTokens,
-      'gen_ai.response.finish_reasons': 'cancelled',
-      'error.type': 'cancelled',
-    });
-    throw err;
   }
+
   send({ type: 'agent_message_done', ticker, from: 'VEGA' as AgentName, to, content: fullText });
   return fullText;
 }
 
-export const vegaAssess = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
-  streamVega('assess', ticker, history, send, trace);
+export const vegaAssess = (ticker: string, history: ConversationMessage[], send: SendFn) =>
+  streamVega('assess', ticker, history, send);
 
-export const vegaChallenge = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext, round = 1) =>
-  streamVega('challenge', ticker, history, send, trace, round);
+export const vegaChallenge = (ticker: string, history: ConversationMessage[], send: SendFn, round = 1) =>
+  streamVega('challenge', ticker, history, send, round);

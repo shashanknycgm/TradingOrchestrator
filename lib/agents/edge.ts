@@ -1,6 +1,4 @@
 import { getAnthropicClient, MODEL } from '../anthropic';
-import { startSpan } from '../telemetry';
-import type { TraceContext } from '../telemetry';
 import { formatHistory } from './utils';
 import type { ConversationMessage, AgentName, SendFn } from './types';
 
@@ -32,30 +30,15 @@ async function streamEdge(
   ticker: string,
   history: ConversationMessage[],
   send: SendFn,
-  trace?: TraceContext
 ): Promise<string> {
   const to = phase === 'respond' ? 'VEGA' : 'all';
-  const span = startSpan(`chat ${MODEL}`, {
-    'gen_ai.system': 'anthropic',
-    'gen_ai.operation.name': 'chat',
-    'gen_ai.request.model': MODEL,
-    'gen_ai.response.model': MODEL,
-    'gen_ai.request.max_tokens': 350,
-    'gen_ai.agent.name': 'edge',
-    'gen_ai.agent.role': 'signal_generator',
-  }, trace);
-
   const anthropic = getAnthropicClient();
   let fullText = '';
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let stopReason = '';
 
   let userContent: string;
   if (phase === 'decide') {
     userContent = `Conversation:\n\n${formatHistory(history)}\n\nGenerate the trading signal for ${ticker}. Commit.`;
   } else {
-    // Quote VEGA's most recent challenge directly so EDGE responds to the specific point
     const lastVega = [...history].reverse().find((m) => m.from === 'VEGA');
     const vegaQuote = lastVega?.content.split('\n')[0] ?? '';
     userContent = `Conversation:\n\n${formatHistory(history)}\n\nVEGA's specific challenge: "${vegaQuote}"\n\nRespond directly to that point — not the whole analysis. One concrete counter-argument, or concede and adjust your signal.`;
@@ -70,38 +53,19 @@ async function streamEdge(
     messages: [{ role: 'user', content: userContent }],
   });
 
-  try {
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        fullText += event.delta.text;
-        send({ type: 'agent_chunk', ticker, from: 'EDGE' as AgentName, to, text: event.delta.text });
-      }
-      if (event.type === 'message_start') inputTokens = event.message.usage.input_tokens;
-      if (event.type === 'message_delta') {
-        outputTokens = event.usage.output_tokens;
-        stopReason = event.delta.stop_reason ?? '';
-      }
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      fullText += event.delta.text;
+      send({ type: 'agent_chunk', ticker, from: 'EDGE' as AgentName, to, text: event.delta.text });
     }
-    span.end({
-      'gen_ai.usage.input_tokens': inputTokens,
-      'gen_ai.usage.output_tokens': outputTokens,
-      'gen_ai.response.finish_reasons': stopReason,
-    });
-  } catch (err) {
-    span.end({
-      'gen_ai.usage.input_tokens': inputTokens,
-      'gen_ai.usage.output_tokens': outputTokens,
-      'gen_ai.response.finish_reasons': 'cancelled',
-      'error.type': 'cancelled',
-    });
-    throw err;
   }
+
   send({ type: 'agent_message_done', ticker, from: 'EDGE' as AgentName, to, content: fullText });
   return fullText;
 }
 
-export const edgeDecide = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
-  streamEdge('decide', ticker, history, send, trace);
+export const edgeDecide = (ticker: string, history: ConversationMessage[], send: SendFn) =>
+  streamEdge('decide', ticker, history, send);
 
-export const edgeRespond = (ticker: string, history: ConversationMessage[], send: SendFn, trace?: TraceContext) =>
-  streamEdge('respond', ticker, history, send, trace);
+export const edgeRespond = (ticker: string, history: ConversationMessage[], send: SendFn) =>
+  streamEdge('respond', ticker, history, send);
