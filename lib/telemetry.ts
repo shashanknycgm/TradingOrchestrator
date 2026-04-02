@@ -41,6 +41,7 @@ export interface GenAISpanAttributes {
   'gen_ai.tool.call.arguments'?: string;
   'gen_ai.tool.call.result'?: string;
   'gen_ai.response.finish_reasons'?: string;
+  'error.type'?: string;
   [key: string]: string | number | boolean | undefined;
 }
 

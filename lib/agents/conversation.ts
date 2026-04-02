@@ -190,3 +190,22 @@ export async function runTickerConversation(
   void lastMarketPrice;
   return signal;
 }
+
+/**
+ * Wraps runTickerConversation and closes the root span with error.type=cancelled
+ * if the conversation is interrupted mid-stream. Called by route.ts.
+ */
+export async function runTickerConversationSafe(
+  ticker: string,
+  send: SendFn,
+  sessionId?: string,
+  onCancel?: () => void
+): Promise<void> {
+  try {
+    await runTickerConversation(ticker, send, sessionId);
+  } catch {
+    // Span already closed with error.type=cancelled inside the agent that threw.
+    // Notify the caller so it can fire a session-level cancellation event.
+    onCancel?.();
+  }
+}

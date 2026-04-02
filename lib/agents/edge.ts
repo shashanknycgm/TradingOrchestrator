@@ -49,6 +49,7 @@ async function streamEdge(
   let fullText = '';
   let inputTokens = 0;
   let outputTokens = 0;
+  let stopReason = '';
 
   let userContent: string;
   if (phase === 'decide') {
@@ -69,16 +70,32 @@ async function streamEdge(
     messages: [{ role: 'user', content: userContent }],
   });
 
-  for await (const event of stream) {
-    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-      fullText += event.delta.text;
-      send({ type: 'agent_chunk', ticker, from: 'EDGE' as AgentName, to, text: event.delta.text });
+  try {
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        fullText += event.delta.text;
+        send({ type: 'agent_chunk', ticker, from: 'EDGE' as AgentName, to, text: event.delta.text });
+      }
+      if (event.type === 'message_start') inputTokens = event.message.usage.input_tokens;
+      if (event.type === 'message_delta') {
+        outputTokens = event.usage.output_tokens;
+        stopReason = event.delta.stop_reason ?? '';
+      }
     }
-    if (event.type === 'message_start') inputTokens = event.message.usage.input_tokens;
-    if (event.type === 'message_delta') outputTokens = event.usage.output_tokens;
+    span.end({
+      'gen_ai.usage.input_tokens': inputTokens,
+      'gen_ai.usage.output_tokens': outputTokens,
+      'gen_ai.response.finish_reasons': stopReason,
+    });
+  } catch (err) {
+    span.end({
+      'gen_ai.usage.input_tokens': inputTokens,
+      'gen_ai.usage.output_tokens': outputTokens,
+      'gen_ai.response.finish_reasons': 'cancelled',
+      'error.type': 'cancelled',
+    });
+    throw err;
   }
-
-  span.end({ 'gen_ai.usage.input_tokens': inputTokens, 'gen_ai.usage.output_tokens': outputTokens });
   send({ type: 'agent_message_done', ticker, from: 'EDGE' as AgentName, to, content: fullText });
   return fullText;
 }
